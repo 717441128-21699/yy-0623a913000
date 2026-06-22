@@ -33,7 +33,7 @@ export interface MeasureResult {
   itemId: string;
   value: number | null;
   photo: string | null;
-  fixedOnSite: boolean;
+  fixedOnSite: boolean | null;
   retestValue?: number | null;
   retestPhoto?: string | null;
   reworkClosed?: boolean;

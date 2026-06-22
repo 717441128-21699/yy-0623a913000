@@ -65,7 +65,7 @@ export const useQualityStore = create<QualityState>()(
             itemId: it.id,
             value: null,
             photo: null,
-            fixedOnSite: false,
+            fixedOnSite: null,
           };
         });
         set({ tempResults: temp });
@@ -91,7 +91,11 @@ export const useQualityStore = create<QualityState>()(
         const items = getCheckItemsByProcess(selectedProcess);
         const resultsArr: MeasureResult[] = items.map((it) => tempResults[it.id]);
         const allFilled = resultsArr.every(
-          (r) => r?.value !== null && r?.photo !== null,
+          (r) =>
+            r?.value !== null &&
+            r?.photo !== null &&
+            r?.fixedOnSite !== null &&
+            r?.fixedOnSite !== undefined,
         );
         if (!allFilled) return { success: false, generatedRework: [] };
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, Calendar, ChevronDown, Wrench } from 'lucide-react';
+import { CheckCircle2, Calendar, ChevronDown } from 'lucide-react';
 import { useQualityStore } from '@/store/qualityStore';
 import { PROCESSES, getCheckItemById, getProcessById } from '@/data/config';
 import { getLastNDates, formatDateCN, formatTime } from '@/utils/helpers';
@@ -15,7 +15,6 @@ export default function QualifiedRecords() {
   const { getRecordsByDateAndProcess } = useQualityStore();
   const [filterDate, setFilterDate] = useState<string | null>(null);
   const [filterProcess, setFilterProcess] = useState<ProcessType | 'all'>('all');
-  const [passedOnly, setPassedOnly] = useState<boolean>(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const dates = useMemo(() => getLastNDates(14), []);
@@ -25,7 +24,6 @@ export default function QualifiedRecords() {
   );
 
   const records = useMemo(() => {
-    if (!passedOnly) return allRecords;
     return allRecords.filter((r) =>
       r.results.every((res) => {
         const item = getCheckItemById(res.itemId);
@@ -33,18 +31,11 @@ export default function QualifiedRecords() {
         return isItemFinallyPassed(res, item.allowMax, item.allowMin);
       }),
     );
-  }, [allRecords, passedOnly]);
+  }, [allRecords]);
 
   const totalCount = records.length;
   const passedItemCount = records.reduce((sum, r) => {
-    return (
-      sum +
-      r.results.filter((res) => {
-        const item = getCheckItemById(res.itemId);
-        if (!item) return false;
-        return isItemFinallyPassed(res, item.allowMax, item.allowMin);
-      }).length
-    );
+    return sum + r.results.length;
   }, 0);
 
   return (
@@ -53,40 +44,11 @@ export default function QualifiedRecords() {
         <div>
           <h1 className="text-heading font-bold text-darkblue-800">合格记录</h1>
           <p className="text-[15px] text-gray-500">
-            {passedOnly
-              ? `已通过 ${totalCount} 次检查，共 ${passedItemCount} 项`
-              : `共 ${totalCount} 次检查，${passedItemCount} 项通过`}
+            已通过 {totalCount} 次检查，共 {passedItemCount} 项
           </p>
         </div>
         <div className="text-3xl">✅</div>
       </header>
-
-      <section>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setPassedOnly(true)}
-            className={`flex-1 h-12 rounded-2xl font-black text-[15px] btn-tap flex items-center justify-center gap-2 ${
-              passedOnly
-                ? 'bg-success-600 text-white shadow-btn'
-                : 'bg-white text-gray-600 border-2 border-gray-200'
-            }`}
-          >
-            <CheckCircle2 size={20} strokeWidth={2.5} />
-            全部合格
-          </button>
-          <button
-            onClick={() => setPassedOnly(false)}
-            className={`flex-1 h-12 rounded-2xl font-black text-[15px] btn-tap flex items-center justify-center gap-2 ${
-              !passedOnly
-                ? 'bg-darkblue-800 text-white shadow-btn'
-                : 'bg-white text-gray-600 border-2 border-gray-200'
-            }`}
-          >
-            <Wrench size={20} strokeWidth={2} />
-            查看全部
-          </button>
-        </div>
-      </section>
 
       <section>
         <div className="flex items-center gap-2 mb-2 text-[14px] font-bold text-gray-600">
@@ -186,32 +148,24 @@ export default function QualifiedRecords() {
               finalValue: number | null;
               finalPhoto: string | null;
             }>;
-            const allOk = items.every((it) => it.ok);
-            const okCount = items.filter((it) => it.ok).length;
             const hasReworkClosed = items.some((it) => it.status === 'rework_closed');
-            const hasPending = items.some((it) => it.status === 'rework_pending');
+            const hasFixed = items.some((it) => it.status === 'fixed');
 
-            const badgeText = hasPending
-              ? '含待返工'
-              : hasReworkClosed
-                ? '含返工合格'
-                : allOk
-                  ? '全部合格'
-                  : '含修补项';
-            const badgeClass = hasPending
-              ? 'bg-danger-100 text-danger-700'
-              : hasReworkClosed
-                ? 'bg-primary-100 text-primary-700'
-                : allOk
-                  ? 'bg-success-100 text-success-700'
-                  : 'bg-warning-100 text-warning-700';
+            const badgeText = hasReworkClosed
+              ? '含返工合格'
+              : hasFixed
+                ? '含当场修补'
+                : '全部合格';
+            const badgeClass = hasReworkClosed
+              ? 'bg-primary-100 text-primary-700'
+              : hasFixed
+                ? 'bg-warning-100 text-warning-700'
+                : 'bg-success-100 text-success-700';
 
             return (
               <article
                 key={r.id}
-                className={`card overflow-hidden animate-bounce-in ${
-                  hasPending ? 'opacity-70' : ''
-                }`}
+                className="card overflow-hidden animate-bounce-in"
               >
                 <button
                   onClick={() => setExpandedId(expanded ? null : r.id)}
@@ -240,7 +194,7 @@ export default function QualifiedRecords() {
                       </span>
                       <span>{formatTime(r.timestamp)}</span>
                       <span>
-                        {okCount}/{items.length}项
+                        {items.length}项
                       </span>
                     </div>
                   </div>
@@ -274,11 +228,7 @@ export default function QualifiedRecords() {
                       return (
                         <div
                           key={it.id}
-                          className={`bg-white rounded-2xl p-3 shadow-sm border ${
-                            it.status === 'rework_pending'
-                              ? 'border-danger-200'
-                              : 'border-slate-100'
-                          }`}
+                          className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2">
@@ -353,12 +303,12 @@ function EmptyState() {
   return (
     <div className="card p-8 text-center">
       <div className="text-7xl mb-4">📋</div>
-      <h2 className="text-heading font-black text-darkblue-800">还没有记录</h2>
+      <h2 className="text-heading font-black text-darkblue-800">还没有合格记录</h2>
       <p className="mt-2 text-[15px] text-gray-500 max-w-[280px] mx-auto">
-        完成今日自检后，合格的数据会自动出现在这里
+        检查项合格、当场修补、或返工复测合格关闭后，会自动出现在这里
       </p>
       <div className="mt-6 inline-flex items-center gap-2 text-[14px] text-primary-700 bg-primary-50 px-4 py-2 rounded-full font-bold">
-        👉 去「今日自检」开始检查吧
+        <CheckCircle2 size={16} /> 去「今日自检」开始检查吧
       </div>
     </div>
   );

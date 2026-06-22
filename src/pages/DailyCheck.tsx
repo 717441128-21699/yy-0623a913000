@@ -33,7 +33,9 @@ export default function DailyCheck() {
     return checkItems.every(
       (it) =>
         tempResults[it.id]?.value !== null &&
-        tempResults[it.id]?.photo !== null,
+        tempResults[it.id]?.photo !== null &&
+        tempResults[it.id]?.fixedOnSite !== null &&
+        tempResults[it.id]?.fixedOnSite !== undefined,
     );
   }, [checkItems, tempResults]);
 
@@ -272,13 +274,16 @@ export default function DailyCheck() {
                     <div>
                       <label className="block text-[14px] font-bold text-gray-700 mb-2">
                         是否当场修补？
+                        {(r?.fixedOnSite === null || r?.fixedOnSite === undefined) && (
+                          <span className="ml-2 text-warning-600 text-[13px]">*必填</span>
+                        )}
                       </label>
                       <div className="grid grid-cols-2 gap-3">
                         <button
                           type="button"
                           onClick={() => handleToggleFix(item.id, false)}
                           className={`h-16 rounded-2xl font-black text-[17px] btn-tap border-2 transition-all ${
-                            !r?.fixedOnSite
+                            r?.fixedOnSite === false
                               ? 'bg-danger-50 border-danger-500 text-danger-700 shadow-btn'
                               : 'bg-white border-gray-200 text-gray-400'
                           }`}
@@ -290,7 +295,7 @@ export default function DailyCheck() {
                           type="button"
                           onClick={() => handleToggleFix(item.id, true)}
                           className={`h-16 rounded-2xl font-black text-[17px] btn-tap border-2 transition-all ${
-                            r?.fixedOnSite
+                            r?.fixedOnSite === true
                               ? 'bg-success-500 border-success-600 text-white shadow-btn'
                               : 'bg-white border-gray-200 text-gray-400'
                           }`}
@@ -299,6 +304,12 @@ export default function DailyCheck() {
                           已修补
                         </button>
                       </div>
+                      {(r?.fixedOnSite === null || r?.fixedOnSite === undefined) && (
+                        <div className="mt-2 flex items-center gap-2 text-[14px] font-bold text-warning-700 bg-warning-50 px-3 py-2 rounded-xl">
+                          <span className="text-lg">⚙️</span>
+                          请选择是否当场修补
+                        </div>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -326,9 +337,15 @@ export default function DailyCheck() {
                   const missingPhoto = checkItems.filter(
                     (it) => tempResults[it.id]?.photo === null,
                   ).length;
+                  const missingFix = checkItems.filter(
+                    (it) =>
+                      tempResults[it.id]?.fixedOnSite === null ||
+                      tempResults[it.id]?.fixedOnSite === undefined,
+                  ).length;
                   const tips: string[] = [];
                   if (missingValue > 0) tips.push(`${missingValue} 项未填数值`);
                   if (missingPhoto > 0) tips.push(`${missingPhoto} 项缺照片`);
+                  if (missingFix > 0) tips.push(`${missingFix} 项未选修补状态`);
                   return (
                     <p className="text-[14px] text-warning-600 font-bold">
                       ⚠ 还差：{tips.join('、')}
