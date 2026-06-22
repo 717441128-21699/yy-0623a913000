@@ -30,7 +30,11 @@ export default function DailyCheck() {
   } | null>(null);
 
   const allFilled = useMemo(() => {
-    return checkItems.every((it) => tempResults[it.id]?.value !== null);
+    return checkItems.every(
+      (it) =>
+        tempResults[it.id]?.value !== null &&
+        tempResults[it.id]?.photo !== null,
+    );
   }, [checkItems, tempResults]);
 
   const handleSelectProcess = (p: ProcessType) => {
@@ -249,11 +253,20 @@ export default function DailyCheck() {
                     <div>
                       <label className="block text-[14px] font-bold text-gray-700 mb-2">
                         现场照片
+                        {r?.photo === null && (
+                          <span className="ml-2 text-warning-600 text-[13px]">*必填</span>
+                        )}
                       </label>
                       <PhotoUpload
                         value={r?.photo ?? null}
                         onChange={(v) => handlePhotoChange(item.id, v)}
                       />
+                      {r?.photo === null && (
+                        <div className="mt-2 flex items-center gap-2 text-[14px] font-bold text-warning-700 bg-warning-50 px-3 py-2 rounded-xl">
+                          <span className="text-lg">📷</span>
+                          请拍一张现场照片再提交
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -305,9 +318,24 @@ export default function DailyCheck() {
               提交自检记录
             </button>
             {!allFilled && (
-              <p className="mt-2 text-center text-[14px] text-gray-500">
-                请先完成所有实测项的数值填写
-              </p>
+              <div className="mt-2 text-center">
+                {(() => {
+                  const missingValue = checkItems.filter(
+                    (it) => tempResults[it.id]?.value === null,
+                  ).length;
+                  const missingPhoto = checkItems.filter(
+                    (it) => tempResults[it.id]?.photo === null,
+                  ).length;
+                  const tips: string[] = [];
+                  if (missingValue > 0) tips.push(`${missingValue} 项未填数值`);
+                  if (missingPhoto > 0) tips.push(`${missingPhoto} 项缺照片`);
+                  return (
+                    <p className="text-[14px] text-warning-600 font-bold">
+                      ⚠ 还差：{tips.join('、')}
+                    </p>
+                  );
+                })()}
+              </div>
             )}
           </div>
         </section>

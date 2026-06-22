@@ -7,7 +7,7 @@ import type {
   ReworkItem,
   ReworkStatus,
 } from '@/types';
-import { isPassedValue } from '@/types';
+import { isPassedValue, isItemFinallyPassed } from '@/types';
 import {
   CHECK_ITEMS,
   getCheckItemById,
@@ -90,7 +90,9 @@ export const useQualityStore = create<QualityState>()(
 
         const items = getCheckItemsByProcess(selectedProcess);
         const resultsArr: MeasureResult[] = items.map((it) => tempResults[it.id]);
-        const allFilled = resultsArr.every((r) => r?.value !== null);
+        const allFilled = resultsArr.every(
+          (r) => r?.value !== null && r?.photo !== null,
+        );
         if (!allFilled) return { success: false, generatedRework: [] };
 
         const today = formatDate();
@@ -168,10 +170,35 @@ export const useQualityStore = create<QualityState>()(
       },
 
       closeReworkItem: (id) => {
+        const rework = get().reworkItems.find((r) => r.id === id);
+        if (!rework || rework.status !== 'retest_passed') {
+          set((s) => ({
+            reworkItems: s.reworkItems.map((r) =>
+              r.id === id ? { ...r, closedAt: Date.now() } : r,
+            ),
+          }));
+          return;
+        }
+        const now = Date.now();
         set((s) => ({
           reworkItems: s.reworkItems.map((r) =>
-            r.id === id ? { ...r, closedAt: Date.now() } : r,
+            r.id === id ? { ...r, closedAt: now } : r,
           ),
+          records: s.records.map((rec) => {
+            if (rec.id !== rework.inspectionId) return rec;
+            return {
+              ...rec,
+              results: rec.results.map((res) => {
+                if (res.itemId !== rework.itemId) return res;
+                return {
+                  ...res,
+                  retestValue: rework.retestValue,
+                  retestPhoto: rework.retestPhoto ?? null,
+                  reworkClosed: true,
+                };
+              }),
+            };
+          }),
         }));
       },
 

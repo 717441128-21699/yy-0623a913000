@@ -34,6 +34,9 @@ export interface MeasureResult {
   value: number | null;
   photo: string | null;
   fixedOnSite: boolean;
+  retestValue?: number | null;
+  retestPhoto?: string | null;
+  reworkClosed?: boolean;
 }
 
 export interface InspectionRecord {
@@ -77,4 +80,41 @@ export function isPassedValue(value: number | null, allowMax: number, allowMin?:
     return value >= allowMin && abs <= allowMax;
   }
   return abs <= allowMax;
+}
+
+export type ItemFinalStatus = 'passed' | 'fixed' | 'rework_closed' | 'rework_pending';
+
+export function getItemFinalStatus(
+  result: MeasureResult,
+  allowMax: number,
+  allowMin?: number,
+): ItemFinalStatus {
+  if (result.reworkClosed) return 'rework_closed';
+  const passed = isPassedValue(result.value, allowMax, allowMin);
+  if (passed) return 'passed';
+  if (result.fixedOnSite) return 'fixed';
+  return 'rework_pending';
+}
+
+export function getFinalValue(result: MeasureResult): number | null {
+  if (result.reworkClosed && result.retestValue !== undefined && result.retestValue !== null) {
+    return result.retestValue;
+  }
+  return result.value;
+}
+
+export function getFinalPhoto(result: MeasureResult): string | null {
+  if (result.reworkClosed && result.retestPhoto) {
+    return result.retestPhoto;
+  }
+  return result.photo;
+}
+
+export function isItemFinallyPassed(
+  result: MeasureResult,
+  allowMax: number,
+  allowMin?: number,
+): boolean {
+  const status = getItemFinalStatus(result, allowMax, allowMin);
+  return status === 'passed' || status === 'fixed' || status === 'rework_closed';
 }

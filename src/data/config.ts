@@ -92,7 +92,7 @@ export const CHECK_ITEMS: CheckItem[] = [
     diagramType: 'floor-level',
     measureTip: '靠尺横放砖缝，测两块砖高低差',
   },
-  // 地坪 2项
+  // 地坪 4项
   {
     id: 'f-flat',
     processId: 'flooring',
@@ -111,6 +111,24 @@ export const CHECK_ITEMS: CheckItem[] = [
     allowMin: -10,
     diagramType: 'floor-level',
     measureTip: '水平仪测与基准线高差，正负10内合格',
+  },
+  {
+    id: 'f-gap',
+    processId: 'flooring',
+    name: '相邻块高低差',
+    unit: 'mm',
+    allowMax: 2,
+    diagramType: 'floor-level',
+    measureTip: '靠尺横跨两块地面，塞尺量高低差',
+  },
+  {
+    id: 'f-line',
+    processId: 'flooring',
+    name: '缝格平直度',
+    unit: 'mm',
+    allowMax: 3,
+    diagramType: 'floor-2m',
+    measureTip: '拉5m通线，量缝格最大偏差值',
   },
   // 砌筑 3项
   {
