@@ -7,8 +7,10 @@ import {
   ChevronDown,
   ChevronRight,
   X,
-  CalendarDays,
-  Lock,
+  Copy,
+  CheckCheck,
+  FileText,
+  Camera,
 } from 'lucide-react';
 import { useQualityStore, isPassedValue } from '@/store/qualityStore';
 import { getProcessById, getCheckItemById } from '@/data/config';
@@ -35,14 +37,34 @@ function isOverdue(item: ReworkItem): boolean {
   return item.reworkDate < today;
 }
 
-interface GroupedData {
-  processId: ProcessType;
+interface GroupSection {
+  key: string;
+  title: string;
+  subtitle?: string;
+  level: 'danger' | 'warning' | 'normal';
   groups: {
-    date: string;
-    label: string;
-    isOverdue: boolean;
+    processId: ProcessType;
     items: ReworkItem[];
   }[];
+}
+
+function buildNoticeText(item: ReworkItem): string {
+  const process = getProcessById(item.processId);
+  const lines: string[] = [];
+  lines.push(`【整改通知单】@${item.workerName}`);
+  lines.push('');
+  lines.push(`工序：${process?.name ?? item.processId}`);
+  lines.push(`实测项：${item.itemName}`);
+  lines.push(`原测量值：${item.originalValue}mm（允许≤${item.allowMax}mm）`);
+  lines.push(`计划整改完成日期：${formatDateCN(item.reworkDate)}`);
+  lines.push('');
+  lines.push('⚠️ 整改要求：');
+  lines.push('1. 请严格按工艺要求完成整改');
+  lines.push('2. 整改完成后现场拍照存档（带刻度/靠尺）');
+  lines.push('3. 班组长到场复测合格后关闭');
+  lines.push('');
+  lines.push(`— 班组长 ${formatDateCN(formatDate())} 发出`);
+  return lines.join('\n');
 }
 
 export default function ReworkList() {
@@ -53,52 +75,55 @@ export default function ReworkList() {
     deleteReworkItem,
   } = useQualityStore();
 
-  const groupedData = useMemo<GroupedData[]>(() => {
-    const active = reworkItems.slice().sort((a, b) => {
-      const overdueA = isOverdue(a) ? 0 : 1;
-      const overdueB = isOverdue(b) ? 0 : 1;
-      if (overdueA !== overdueB) return overdueA - overdueB;
-      if (a.reworkDate !== b.reworkDate) return a.reworkDate < b.reworkDate ? -1 : 1;
-      return a.createdAt - b.createdAt;
-    });
-
-    const byProcess = new Map<ProcessType, Map<string, ReworkItem[]>>();
-    active.forEach((item) => {
-      if (!byProcess.has(item.processId)) {
-        byProcess.set(item.processId, new Map());
-      }
-      const dateMap = byProcess.get(item.processId)!;
-      if (!dateMap.has(item.reworkDate)) {
-        dateMap.set(item.reworkDate, []);
-      }
-      dateMap.get(item.reworkDate)!.push(item);
-    });
-
-    const result: GroupedData[] = [];
-    byProcess.forEach((dateMap, processId) => {
-      const groups: GroupedData['groups'] = [];
-      dateMap.forEach((items, date) => {
-        const sample = items[0];
-        groups.push({
-          date,
-          label: isOverdue(sample)
-            ? `⚠️ 超期 · ${formatDateCN(date)}`
-            : formatDateCN(date),
-          isOverdue: isOverdue(sample),
-          items,
-        });
+  const sections = useMemo<GroupSection[]>(() => {
+    const active = reworkItems
+      .filter((r) => !r.closedAt)
+      .slice()
+      .sort((a, b) => {
+        if (a.reworkDate !== b.reworkDate) return a.reworkDate < b.reworkDate ? -1 : 1;
+        return a.createdAt - b.createdAt;
       });
-      groups.sort((a, b) => {
-        if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
-        return a.date < b.date ? -1 : 1;
-      });
-      result.push({ processId, groups });
-    });
+    const overdue = active.filter((r) => isOverdue(r));
+    const normal = active.filter((r) => !isOverdue(r));
 
-    const processOrder = ['plastering', 'tiling', 'flooring', 'masonry'] as ProcessType[];
-    result.sort(
-      (a, b) => processOrder.indexOf(a.processId) - processOrder.indexOf(b.processId),
-    );
+    const groupByProcess = (items: ReworkItem[]) => {
+      const map = new Map<ProcessType, ReworkItem[]>();
+      items.forEach((item) => {
+        if (!map.has(item.processId)) map.set(item.processId, []);
+        map.get(item.processId)!.push(item);
+      });
+      const processOrder = [
+        'plastering',
+        'tiling',
+        'flooring',
+        'masonry',
+      ] as ProcessType[];
+      const result: { processId: ProcessType; items: ReworkItem[] }[] = [];
+      processOrder.forEach((pid) => {
+        if (map.has(pid)) result.push({ processId: pid, items: map.get(pid)! });
+      });
+      return result;
+    };
+
+    const result: GroupSection[] = [];
+    if (overdue.length > 0) {
+      result.push({
+        key: 'overdue',
+        title: '⚠️ 超期未关闭项',
+        subtitle: `共 ${overdue.length} 项，请优先处理`,
+        level: 'danger',
+        groups: groupByProcess(overdue),
+      });
+    }
+    if (normal.length > 0) {
+      result.push({
+        key: 'normal',
+        title: '📋 按计划处理中',
+        subtitle: normal.length > 0 ? `共 ${normal.length} 项` : undefined,
+        level: 'normal',
+        groups: groupByProcess(normal),
+      });
+    }
     return result;
   }, [reworkItems]);
 
@@ -117,10 +142,13 @@ export default function ReworkList() {
   const [retestValue, setRetestValue] = useState<string>('');
   const [retestPhoto, setRetestPhoto] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
-  const [expandedGroup, setExpandedGroup] = useState<string | null>(
-    () => groupedData[0]?.processId ?? null,
+  const [needPhotoModal, setNeedPhotoModal] = useState<string | null>(null);
+  const [expandedSection, setExpandedSection] = useState<string | null>(
+    () => sections[0]?.key ?? null,
   );
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [noticeModal, setNoticeModal] = useState<string | null>(null);
+  const [copiedNotice, setCopiedNotice] = useState(false);
 
   const openRetest = (id: string) => {
     const item = reworkItems.find((r) => r.id === id);
@@ -157,7 +185,19 @@ export default function ReworkList() {
     closeModal();
   };
 
-  if (reworkItems.every((r) => r.closedAt)) {
+  const handleTryClose = (id: string) => {
+    const item = reworkItems.find((r) => r.id === id);
+    if (!item) return;
+    if (item.status !== 'retest_passed') return;
+    if (!item.retestPhoto) {
+      setNeedPhotoModal(id);
+      return;
+    }
+    setConfirmClose(id);
+  };
+
+  const activeItems = reworkItems.filter((r) => !r.closedAt);
+  if (activeItems.length === 0) {
     return <EmptyState />;
   }
 
@@ -166,7 +206,7 @@ export default function ReworkList() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-heading font-bold text-darkblue-800">返工清单</h1>
-          <p className="text-[15px] text-gray-500">按工序 · 日期分组，超期排前</p>
+          <p className="text-[15px] text-gray-500">超期项置顶，按工序分组处理</p>
         </div>
         <div className="text-3xl">🔧</div>
       </header>
@@ -191,229 +231,271 @@ export default function ReworkList() {
       </div>
 
       <div className="space-y-3">
-        {groupedData.map((pg) => {
-          const process = getProcessById(pg.processId);
-          const pExpanded = expandedGroup === pg.processId;
-          const totalItems = pg.groups.reduce((sum, g) => sum + g.items.length, 0);
+        {sections.map((sec) => {
+          const secOpen = expandedSection === sec.key;
+          const sectionBorder =
+            sec.level === 'danger'
+              ? 'border-purple-400 border-[3px]'
+              : sec.level === 'warning'
+                ? 'border-warning-300 border-[2px]'
+                : '';
+          const headerBg =
+            sec.level === 'danger'
+              ? 'bg-gradient-to-r from-purple-50 to-white'
+              : sec.level === 'warning'
+                ? 'bg-gradient-to-r from-warning-50 to-white'
+                : '';
           return (
-            <section key={pg.processId} className="card overflow-hidden">
+            <section
+              key={sec.key}
+              className={`card overflow-hidden ${sectionBorder} animate-bounce-in`}
+            >
               <button
-                onClick={() => setExpandedGroup(pExpanded ? null : pg.processId)}
-                className={`w-full p-4 flex items-center gap-3 text-left btn-tap ${
-                  pExpanded ? '' : ''
-                }`}
+                onClick={() => setExpandedSection(secOpen ? null : sec.key)}
+                className={`w-full p-4 flex items-center gap-3 text-left btn-tap ${headerBg}`}
               >
                 <div
-                  className={`w-10 h-10 rounded-xl bg-gradient-to-br ${process?.gradient} flex items-center justify-center text-xl shadow-inner shrink-0`}
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 ${
+                    sec.level === 'danger'
+                      ? 'bg-purple-100'
+                      : sec.level === 'warning'
+                        ? 'bg-warning-100'
+                        : 'bg-slate-100'
+                  }`}
                 >
-                  {process?.emoji}
+                  {sec.level === 'danger' ? '🚨' : sec.level === 'warning' ? '⏰' : '📋'}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-subheading font-black text-darkblue-800">
-                    {process?.name}
+                  <h3
+                    className={`text-subheading font-black ${
+                      sec.level === 'danger'
+                        ? 'text-purple-800'
+                        : sec.level === 'warning'
+                          ? 'text-warning-700'
+                          : 'text-darkblue-800'
+                    }`}
+                  >
+                    {sec.title}
                   </h3>
-                  <p className="text-[13px] text-gray-500">
-                    {totalItems} 项待处理
-                  </p>
+                  {sec.subtitle && (
+                    <p className="text-[13px] text-gray-500">{sec.subtitle}</p>
+                  )}
                 </div>
                 <div
-                  className={`transition-transform ${pExpanded ? 'rotate-180' : ''}`}
+                  className={`transition-transform ${secOpen ? 'rotate-180' : ''}`}
                 >
                   <ChevronDown size={22} className="text-gray-400" />
                 </div>
               </button>
 
-              {pExpanded && (
+              {secOpen && (
                 <div className="px-4 pb-4 space-y-3 border-t border-slate-100 pt-3">
-                  {pg.groups.map((g) => {
-                    const overdueCount = g.items.filter((i) => isOverdue(i)).length;
+                  {sec.groups.map((pg) => {
+                    const process = getProcessById(pg.processId);
+                    const items = pg.items;
                     return (
-                      <div key={g.date}>
-                        <div
-                          className={`flex items-center gap-2 mb-2 text-[13px] font-bold px-3 py-1.5 rounded-xl inline-flex ${
-                            g.isOverdue
-                              ? 'bg-danger-50 text-danger-700'
-                              : 'bg-slate-100 text-gray-600'
-                          }`}
-                        >
-                          <CalendarDays size={14} />
-                          {g.label}
-                          {overdueCount > 0 && (
-                            <span className="ml-1">({overdueCount}项超期)</span>
-                          )}
+                      <div
+                        key={`${sec.key}-${pg.processId}`}
+                        className="space-y-2"
+                      >
+                        <div className="flex items-center gap-2 text-[13px] font-bold text-gray-600 px-1">
+                          <span
+                            className={`inline-block w-3 h-3 rounded-full ${process?.dotColor}`}
+                          />
+                          <span>
+                            {process?.emoji} {process?.name}（{items.length}项）
+                          </span>
                         </div>
 
-                        <div className="space-y-2">
-                          {g.items.map((item) => {
-                            const isPassed = item.status === 'retest_passed';
-                            const isFailed = item.status === 'retest_failed';
-                            const isOpen = expandedItem === item.id;
-                            const overdue = isOverdue(item);
+                        {items.map((item) => {
+                          const isPassed = item.status === 'retest_passed';
+                          const isFailed = item.status === 'retest_failed';
+                          const isOpen = expandedItem === item.id;
+                          const overdue = isOverdue(item);
 
-                            return (
-                              <article
-                                key={item.id}
-                                className={`rounded-2xl border-l-[6px] bg-white overflow-hidden shadow-sm animate-bounce-in ${
-                                  isPassed
-                                    ? 'border-l-success-600'
-                                    : isFailed
-                                      ? 'border-l-warning-600'
-                                      : overdue
-                                        ? 'border-l-purple-600'
-                                        : 'border-l-danger-600'
-                                }`}
+                          return (
+                            <article
+                              key={item.id}
+                              className={`rounded-2xl border-l-[6px] bg-white overflow-hidden shadow-sm animate-bounce-in ${
+                                isPassed
+                                  ? 'border-l-success-600'
+                                  : isFailed
+                                    ? 'border-l-warning-600'
+                                    : overdue
+                                      ? 'border-l-purple-600'
+                                      : 'border-l-danger-600'
+                              }`}
+                            >
+                              <button
+                                onClick={() =>
+                                  setExpandedItem(isOpen ? null : item.id)
+                                }
+                                className="w-full p-3 flex items-center gap-3 text-left btn-tap"
                               >
-                                <button
-                                  onClick={() => setExpandedItem(isOpen ? null : item.id)}
-                                  className="w-full p-3 flex items-center gap-3 text-left btn-tap"
-                                >
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <h4 className="text-[16px] font-black text-darkblue-800">
-                                        {item.itemName}
-                                      </h4>
-                                      <span
-                                        className={`text-[12px] font-bold px-2.5 py-1 rounded-full ${
-                                          isPassed
-                                            ? 'bg-success-100 text-success-700'
-                                            : isFailed
-                                              ? 'bg-warning-100 text-warning-700'
-                                              : overdue
-                                                ? 'bg-purple-100 text-purple-700'
-                                                : 'bg-danger-100 text-danger-700'
-                                        }`}
-                                      >
-                                        {isPassed
-                                          ? '复测合格'
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h4 className="text-[16px] font-black text-darkblue-800">
+                                      {item.itemName}
+                                    </h4>
+                                    <span
+                                      className={`text-[12px] font-bold px-2.5 py-1 rounded-full ${
+                                        isPassed
+                                          ? 'bg-success-100 text-success-700'
                                           : isFailed
-                                            ? '仍超差'
+                                            ? 'bg-warning-100 text-warning-700'
                                             : overdue
-                                              ? '超期待处理'
-                                              : '待返工'}
-                                      </span>
-                                    </div>
-                                    <div className="mt-1 flex items-center gap-3 text-[13px] text-gray-500">
-                                      <span className="flex items-center gap-1">
-                                        <User size={14} />
-                                        {item.workerName}
-                                      </span>
-                                      <span>原 {item.originalValue}mm</span>
-                                      {item.retestValue !== null && (
-                                        <span>
-                                          复测 {item.retestValue}mm
-                                        </span>
-                                      )}
-                                    </div>
+                                              ? 'bg-purple-100 text-purple-700'
+                                              : 'bg-danger-100 text-danger-700'
+                                      }`}
+                                    >
+                                      {isPassed
+                                        ? '复测合格'
+                                        : isFailed
+                                          ? '仍超差'
+                                          : overdue
+                                            ? '超期待处理'
+                                            : '待返工'}
+                                    </span>
                                   </div>
-                                  <div
-                                    className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                                  >
-                                    <ChevronDown size={20} className="text-gray-400" />
-                                  </div>
-                                </button>
-
-                                {isOpen && (
-                                  <div className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-3 animate-bounce-in">
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div>
-                                        <div className="text-[12px] font-bold text-danger-700 mb-1">
-                                          原始照片
-                                        </div>
-                                        {item.photo ? (
-                                          <img
-                                            src={item.photo}
-                                            alt="原始照片"
-                                            className="w-full aspect-[4/3] rounded-xl object-cover"
-                                          />
-                                        ) : (
-                                          <div className="w-full aspect-[4/3] rounded-xl bg-slate-200 flex items-center justify-center text-2xl text-gray-400">
-                                            📷
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div>
-                                        <div className="text-[12px] font-bold text-primary-700 mb-1">
-                                          复测照片
-                                          {item.retestPhoto && (
-                                            <span className="ml-1 bg-primary-100 px-1.5 py-0.5 rounded-full text-[11px]">
-                                              已拍
-                                            </span>
-                                          )}
-                                        </div>
-                                        {item.retestPhoto ? (
-                                          <img
-                                            src={item.retestPhoto}
-                                            alt="复测照片"
-                                            className="w-full aspect-[4/3] rounded-xl object-cover"
-                                          />
-                                        ) : (
-                                          <div className="w-full aspect-[4/3] rounded-xl bg-slate-200 flex items-center justify-center text-2xl text-gray-400">
-                                            📷
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-2 text-[13px] text-gray-600">
-                                      <div className="bg-white rounded-xl px-3 py-2">
-                                        <span className="text-gray-400">计划日期：</span>
-                                        <span className="font-bold">
-                                          {formatDateCN(item.reworkDate)}
-                                        </span>
-                                      </div>
-                                      <div className="bg-white rounded-xl px-3 py-2">
-                                        <span className="text-gray-400">创建时间：</span>
-                                        <span className="font-bold">
-                                          {formatTime(item.createdAt)}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {item.closedAt && (
-                                      <div className="bg-success-50 rounded-xl px-3 py-2 text-[13px] text-success-700 flex items-center gap-2">
-                                        <Lock size={14} />
-                                        <span className="font-bold">
-                                          已关闭：
-                                          {formatDateCN(
-                                            formatDate(new Date(item.closedAt)),
-                                          )}{' '}
-                                          {formatTime(item.closedAt)}
-                                        </span>
-                                      </div>
+                                  <div className="mt-1 flex items-center gap-3 text-[13px] text-gray-500">
+                                    <span className="flex items-center gap-1">
+                                      <User size={14} />
+                                      {item.workerName}
+                                    </span>
+                                    <span>原 {item.originalValue}mm</span>
+                                    {item.retestValue !== null && (
+                                      <span>
+                                        复测 {item.retestValue}mm
+                                      </span>
                                     )}
+                                  </div>
+                                </div>
+                                <div
+                                  className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                                >
+                                  <ChevronDown
+                                    size={20}
+                                    className="text-gray-400"
+                                  />
+                                </div>
+                              </button>
 
-                                    <div className="grid grid-cols-2 gap-3 pt-1">
-                                      <button
-                                        onClick={() => openRetest(item.id)}
-                                        className="h-14 rounded-2xl font-black text-[16px] btn-tap text-white bg-gradient-to-r from-primary-600 to-primary-800 shadow-btn flex items-center justify-center gap-2"
-                                      >
-                                        <Wrench size={20} strokeWidth={2.5} />
-                                        {item.retestValue !== null ? '再次复测' : '去复测'}
-                                      </button>
-                                      {isPassed ? (
-                                        <button
-                                          onClick={() => setConfirmClose(item.id)}
-                                          className="h-14 rounded-2xl font-black text-[16px] btn-tap text-white bg-gradient-to-r from-success-500 to-success-700 shadow-btn flex items-center justify-center gap-2"
-                                        >
-                                          <Check size={20} strokeWidth={2.5} />
-                                          合格关闭
-                                        </button>
+                              {isOpen && (
+                                <div className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-3 animate-bounce-in">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <div className="text-[12px] font-bold text-danger-700 mb-1">
+                                        原始照片
+                                      </div>
+                                      {item.photo ? (
+                                        <img
+                                          src={item.photo}
+                                          alt="原始照片"
+                                          className="w-full aspect-[4/3] rounded-xl object-cover"
+                                        />
                                       ) : (
-                                        <button
-                                          onClick={() => deleteReworkItem(item.id)}
-                                          className="h-14 rounded-2xl font-black text-[16px] btn-tap text-gray-600 bg-white border-2 border-gray-200 flex items-center justify-center gap-2"
-                                        >
-                                          <X size={20} strokeWidth={2.5} />
-                                          清除
-                                        </button>
+                                        <div className="w-full aspect-[4/3] rounded-xl bg-slate-200 flex items-center justify-center text-2xl text-gray-400">
+                                          📷
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <div className="text-[12px] font-bold text-primary-700 mb-1 flex items-center gap-1">
+                                        复测照片
+                                        {item.retestPhoto ? (
+                                          <span className="ml-1 bg-primary-100 px-1.5 py-0.5 rounded-full text-[11px]">
+                                            已拍
+                                          </span>
+                                        ) : (
+                                          <span className="ml-1 bg-warning-100 text-warning-700 px-1.5 py-0.5 rounded-full text-[11px]">
+                                            待补
+                                          </span>
+                                        )}
+                                      </div>
+                                      {item.retestPhoto ? (
+                                        <img
+                                          src={item.retestPhoto}
+                                          alt="复测照片"
+                                          className="w-full aspect-[4/3] rounded-xl object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-full aspect-[4/3] rounded-xl bg-slate-200 flex items-center justify-center text-2xl text-gray-400">
+                                          📷
+                                        </div>
                                       )}
                                     </div>
                                   </div>
-                                )}
-                              </article>
-                            );
-                          })}
-                        </div>
+
+                                  <div className="grid grid-cols-2 gap-2 text-[13px] text-gray-600">
+                                    <div className="bg-white rounded-xl px-3 py-2">
+                                      <span className="text-gray-400">
+                                        计划日期：
+                                      </span>
+                                      <span
+                                        className={`font-bold ${overdue ? 'text-danger-600' : ''}`}
+                                      >
+                                        {formatDateCN(item.reworkDate)}
+                                        {overdue && '（已超期）'}
+                                      </span>
+                                    </div>
+                                    <div className="bg-white rounded-xl px-3 py-2">
+                                      <span className="text-gray-400">
+                                        创建时间：
+                                      </span>
+                                      <span className="font-bold">
+                                        {formatDateCN(
+                                          formatDate(
+                                            new Date(item.createdAt),
+                                          ),
+                                        )}{' '}
+                                        {formatTime(item.createdAt)}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    onClick={() => setNoticeModal(item.id)}
+                                    className="w-full h-11 rounded-2xl font-bold text-[15px] btn-tap bg-darkblue-800 text-white flex items-center justify-center gap-2"
+                                  >
+                                    <FileText size={18} strokeWidth={2.5} />
+                                    生成整改通知单 · 复制发群
+                                  </button>
+
+                                  <div className="grid grid-cols-2 gap-3 pt-1">
+                                    <button
+                                      onClick={() => openRetest(item.id)}
+                                      className="h-14 rounded-2xl font-black text-[16px] btn-tap text-white bg-gradient-to-r from-primary-600 to-primary-800 shadow-btn flex items-center justify-center gap-2"
+                                    >
+                                      <Wrench size={20} strokeWidth={2.5} />
+                                      {item.retestValue !== null
+                                        ? '再次复测'
+                                        : '去复测'}
+                                    </button>
+                                    {isPassed ? (
+                                      <button
+                                        onClick={() => handleTryClose(item.id)}
+                                        className="h-14 rounded-2xl font-black text-[16px] btn-tap text-white bg-gradient-to-r from-success-500 to-success-700 shadow-btn flex items-center justify-center gap-2"
+                                      >
+                                        <Check size={20} strokeWidth={2.5} />
+                                        合格关闭
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() =>
+                                          deleteReworkItem(item.id)
+                                        }
+                                        className="h-14 rounded-2xl font-black text-[16px] btn-tap text-gray-600 bg-white border-2 border-gray-200 flex items-center justify-center gap-2"
+                                      >
+                                        <X size={20} strokeWidth={2.5} />
+                                        清除
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
                       </div>
                     );
                   })}
@@ -466,6 +548,45 @@ export default function ReworkList() {
           </div>
         </div>
       )}
+
+      {needPhotoModal && (
+        <NeedPhotoModal
+          itemId={needPhotoModal}
+          onCancel={() => setNeedPhotoModal(null)}
+          onGoRetest={() => {
+            const id = needPhotoModal;
+            setNeedPhotoModal(null);
+            openRetest(id);
+          }}
+        />
+      )}
+
+      {noticeModal && (
+        <NoticeModal
+          item={reworkItems.find((r) => r.id === noticeModal)!}
+          copied={copiedNotice}
+          onClose={() => {
+            setNoticeModal(null);
+            setCopiedNotice(false);
+          }}
+          onCopy={async () => {
+            const item = reworkItems.find((r) => r.id === noticeModal);
+            if (!item) return;
+            try {
+              await navigator.clipboard.writeText(buildNoticeText(item));
+            } catch {
+              const ta = document.createElement('textarea');
+              ta.value = buildNoticeText(item);
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            }
+            setCopiedNotice(true);
+            setTimeout(() => setCopiedNotice(false), 2000);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -480,6 +601,129 @@ function EmptyState() {
       </p>
       <div className="mt-6 inline-flex items-center gap-2 text-[14px] text-success-700 bg-success-50 px-4 py-2 rounded-full font-bold">
         <Check size={16} /> 质量状态良好，继续保持！
+      </div>
+    </div>
+  );
+}
+
+function NeedPhotoModal({
+  itemId,
+  onCancel,
+  onGoRetest,
+}: {
+  itemId: string;
+  onCancel: () => void;
+  onGoRetest: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 animate-bounce-in p-4">
+      <div className="card w-full max-w-[420px] p-6">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto rounded-full bg-warning-100 flex items-center justify-center mb-3">
+            <Camera size={32} className="text-warning-600" strokeWidth={2.5} />
+          </div>
+          <h2 className="text-heading font-black text-darkblue-800">
+            还缺复测照片
+          </h2>
+          <p className="mt-2 text-[15px] text-gray-600">
+            关闭前必须先拍一张复测现场照片，方便后续历史追踪
+          </p>
+        </div>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button onClick={onCancel} className="btn-outline h-16 text-[17px]">
+            取消
+          </button>
+          <button
+            onClick={onGoRetest}
+            className="h-16 rounded-2xl font-black text-[17px] btn-tap text-white bg-gradient-to-r from-primary-600 to-primary-800 shadow-btn flex items-center justify-center gap-2"
+          >
+            <Camera size={20} strokeWidth={2.5} />
+            去补照片
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NoticeModal({
+  item,
+  copied,
+  onClose,
+  onCopy,
+}: {
+  item: ReworkItem;
+  copied: boolean;
+  onClose: () => void;
+  onCopy: () => void;
+}) {
+  const process = getProcessById(item.processId);
+  const text = buildNoticeText(item);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 animate-bounce-in p-4">
+      <div className="card w-full max-w-[440px] overflow-hidden">
+        <div className="p-5 pb-0 flex items-center justify-between">
+          <h2 className="text-subheading font-black text-darkblue-800 flex items-center gap-2">
+            <FileText size={20} className="text-primary-700" />
+            整改通知单
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center btn-tap"
+          >
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div className="flex items-center gap-3 p-3 rounded-2xl bg-darkblue-50">
+            <div
+              className={`w-10 h-10 rounded-xl bg-gradient-to-br ${process?.gradient} flex items-center justify-center text-xl shadow-inner shrink-0`}
+            >
+              {process?.emoji}
+            </div>
+            <div>
+              <div className="text-[13px] text-gray-500">
+                通知 <span className="font-bold text-darkblue-800">{item.workerName}</span>
+              </div>
+              <div className="text-[15px] font-black text-darkblue-800">
+                {item.itemName} · 原测 {item.originalValue}mm
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4 border border-slate-100">
+            <pre className="whitespace-pre-wrap text-[14px] leading-7 text-gray-700 font-sans">
+              {text}
+            </pre>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-1 pb-1">
+            <button onClick={onClose} className="btn-outline h-14 text-[16px]">
+              关闭
+            </button>
+            <button
+              onClick={onCopy}
+              className={`h-14 rounded-2xl font-black text-[16px] btn-tap text-white flex items-center justify-center gap-2 ${
+                copied
+                  ? 'bg-success-500'
+                  : 'bg-gradient-to-r from-darkblue-700 to-darkblue-900 shadow-btn'
+              }`}
+            >
+              {copied ? (
+                <>
+                  <CheckCheck size={18} strokeWidth={2.5} />
+                  已复制，去发群
+                </>
+              ) : (
+                <>
+                  <Copy size={18} strokeWidth={2.5} />
+                  一键复制
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

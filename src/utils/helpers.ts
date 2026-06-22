@@ -43,6 +43,23 @@ export function getLastNDates(n: number): string[] {
   return arr;
 }
 
+export function getThisWeekRange(): [string, string] {
+  const today = new Date();
+  const day = today.getDay();
+  const diffToMonday = day === 0 ? 6 : day - 1;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - diffToMonday);
+  return [formatDate(monday), formatDate(today)];
+}
+
+export function isDateInRange(
+  dateStr: string,
+  start: string,
+  end: string,
+): boolean {
+  return dateStr >= start && dateStr <= end;
+}
+
 export function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
