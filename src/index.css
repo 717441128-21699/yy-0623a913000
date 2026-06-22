@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #F1F5F9;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  .btn-tap {
+    @apply transition-all duration-100 active:scale-95;
+  }
+  .btn-primary {
+    @apply bg-gradient-to-r from-primary-600 to-primary-800 text-white font-bold rounded-2xl shadow-btn btn-tap min-h-[56px] flex items-center justify-center gap-2;
+  }
+  .btn-success {
+    @apply bg-gradient-to-r from-success-500 to-success-700 text-white font-bold rounded-2xl shadow-btn btn-tap min-h-[56px] flex items-center justify-center gap-2;
+  }
+  .btn-danger {
+    @apply bg-gradient-to-r from-danger-500 to-danger-700 text-white font-bold rounded-2xl shadow-btn btn-tap min-h-[56px] flex items-center justify-center gap-2;
+  }
+  .btn-outline {
+    @apply bg-white border-2 border-gray-300 text-gray-700 font-bold rounded-2xl btn-tap min-h-[56px] flex items-center justify-center gap-2;
+  }
+  .card {
+    @apply bg-white rounded-3xl shadow-card overflow-hidden;
+  }
+  .input-big {
+    @apply w-full text-display font-bold text-center border-[3px] border-gray-200 rounded-2xl focus:border-primary-600 focus:outline-none py-4 transition-colors;
+  }
+}
+
+/* 隐藏数字输入框的上下箭头 */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* 横向滚动条隐藏 */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 照片虚线框 */
+.photo-frame {
+  border: 3px dashed #CBD5E1;
+  border-radius: 20px;
+  transition: all 0.2s;
+}
+.photo-frame:hover {
+  border-color: #F57C00;
+  background-color: #FFF3E0;
+}
